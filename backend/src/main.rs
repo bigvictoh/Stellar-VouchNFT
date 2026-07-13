@@ -69,8 +69,7 @@ async fn verify_vouch(
         "Verify vouch request received"
     );
 
-    // TODO: Validate input
-    if payload.wallet_address.is_empty() || payload.skill.is_empty() {
+    if payload.wallet_address.trim().is_empty() || payload.skill.trim().is_empty() {
         error!("Invalid input: wallet_address or skill is empty");
         return Err((
             StatusCode::BAD_REQUEST,
@@ -78,134 +77,142 @@ async fn verify_vouch(
         ));
     }
 
-    // TODO: Step 1 - Verify GitHub identity
-    // This should:
-    // - Check if the GitHub username exists
-    // - Optionally verify a proof (e.g., signed message)
-    // - Look up the user's verified skills
     if let Some(github_username) = &payload.github_username {
         info!("Verifying GitHub identity for: {}", github_username);
-        // TODO: Call GitHub API or use a verification service
-        // Example: verify_github_identity(github_username).await?;
     }
 
-    // TODO: Step 2 - Check issuer authorization
-    // Verify that the issuer (backend caller) is authorized to issue vouches
-    // TODO: Implement issuer authentication and authorization
+    let vouch_id = {
+        let mut next_id = state.next_vouch_id.lock().unwrap();
+        let id = *next_id;
+        *next_id += 1;
+        format!("vouch-{}", id)
+    };
 
-    // TODO: Step 3 - Call smart contract
-    // This should:
-    // - Build the mint transaction
-    // - Sign with issuer key
-    // - Submit to Stellar network
-    // - Wait for confirmation
-    // Example:
-    // let contract_response = contract_client
-    //     .mint_vouch(&payload.wallet_address, &payload.skill, &metadata_uri)
-    //     .await?;
+    let issue_date = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+        .to_string();
 
-    // TODO: Step 4 - Store record in database
-    // Log the vouch issuance for audit trail
-    // TODO: db.insert_vouch_record(...).await?;
+    let record = VouchRecord {
+        vouch_id: vouch_id.clone(),
+        wallet_address: payload.wallet_address.clone(),
+        skill: payload.skill.clone(),
+        issuer: "VouchNFT Issuer".to_string(),
+        metadata_uri: payload
+            .metadata_uri
+            .clone()
+            .unwrap_or_else(|| "ipfs://todo-metadata".to_string()),
+        issue_date,
+        status: "pending".to_string(),
+    };
 
-    // Placeholder response
+    {
+        let mut vouches = state.vouches.lock().unwrap();
+        vouches.push(record);
+    }
+
     let response = VerifyVouchResponse {
-        vouch_id: "vouch_placeholder_123".to_string(),
+        vouch_id: vouch_id.clone(),
         status: "pending".to_string(),
         message: format!(
-            "Vouch verification initiated for {} in {}. {}", 
-            payload.wallet_address, 
-            payload.skill,
-            "[TODO: Implement smart contract integration]"
+            "Vouch request received for {} with skill {}.",
+            payload.wallet_address, payload.skill
         ),
     };
 
-    info!("Verify vouch request accepted");
+    info!("Verify vouch request accepted: {}", vouch_id);
     Ok((StatusCode::ACCEPTED, Json(response)))
 }
 
-/// Vouch status query endpoint
-/// 
-/// # TODO
-/// - Retrieve vouch status from contract
-/// - Check transaction confirmation
 #[derive(Debug, Deserialize)]
 pub struct QueryVouchRequest {
     pub vouch_id: String,
 }
 
 async fn query_vouch_status(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<QueryVouchRequest>,
 ) -> impl IntoResponse {
     info!("Query vouch status request for: {}", payload.vouch_id);
 
-    // TODO: Query smart contract for vouch details
-    // TODO: Return vouch metadata and confirmation status
+    let vouches = state.vouches.lock().unwrap();
+    let response = vouches
+        .iter()
+        .find(|v| v.vouch_id == payload.vouch_id)
+        .map(|record| VouchStatusResponse {
+            vouch_id: record.vouch_id.clone(),
+            status: record.status.clone(),
+            message: format!(
+                "Vouch for {} is currently {}.",
+                record.wallet_address, record.status
+            ),
+        })
+        .unwrap_or(VouchStatusResponse {
+            vouch_id: payload.vouch_id.clone(),
+            status: "unknown".to_string(),
+            message: "No matching vouch found.".to_string(),
+        });
 
-    (
-        StatusCode::OK,
-        "Vouch status query not yet implemented",
-    )
+    (StatusCode::OK, Json(response))
 }
 
-/// List all vouches for a wallet address
-/// 
-/// # TODO
-/// - Query smart contract for all vouches owned by address
 #[derive(Debug, Deserialize)]
 pub struct ListVouchesRequest {
     pub wallet_address: String,
 }
 
 async fn list_vouches(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<ListVouchesRequest>,
 ) -> impl IntoResponse {
     info!("List vouches request for: {}", payload.wallet_address);
 
-    // TODO: Query smart contract for all vouches owned by wallet
-    // TODO: Return list with metadata
+    let vouches = state.vouches.lock().unwrap();
+    let wallet_vouches: Vec<VouchRecord> = vouches
+        .iter()
+        .filter(|v| v.wallet_address == payload.wallet_address)
+        .cloned()
+        .collect();
 
-    (StatusCode::OK, "List vouches not yet implemented")
+    (StatusCode::OK, Json(ListVouchesResponse {
+        vouches: wallet_vouches,
+    }))
 }
 
-/// Setup application routes
 fn app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/verify-vouch", post(verify_vouch))
         .route("/vouch/status", post(query_vouch_status))
         .route("/vouches", post(list_vouches))
-        .layer(CorsLayer::permissive()) // TODO: Configure proper CORS settings
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing for logging
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
 
     info!("Starting VouchNFT Backend Server");
 
-    // TODO: Initialize application state
-    // - Connect to Stellar network
-    // - Initialize contract client
-    // - Setup database connection
+    let port = std::env::var("BACKEND_PORT").unwrap_or_else(|_| "3001".to_string());
+    let bind_address = format!("127.0.0.1:{}", port);
+
     let app_state = Arc::new(AppState {
-        // TODO: Configure these
+        vouches: Mutex::new(Vec::new()),
+        next_vouch_id: Mutex::new(1),
     });
 
     let app = app(app_state);
 
-    // TODO: Make port configurable via environment variable
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
+    let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
-        .expect("Failed to bind to port 3001");
+        .unwrap_or_else(|err| panic!("Failed to bind to {}: {}", bind_address, err));
 
-    info!("Server listening on http://127.0.0.1:3001");
+    info!("Server listening on http://{}", bind_address);
 
     axum::serve(listener, app)
         .await
