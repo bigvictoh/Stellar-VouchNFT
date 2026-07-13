@@ -57,12 +57,6 @@ export async function verifyVouch(
   });
 }
 
-/**
- * Query vouch status
- * 
- * # TODO
- * - Complete implementation
- */
 export async function getVouchStatus(vouchId: string): Promise<any> {
   return apiRequest(`/vouch/status`, {
     method: "POST",
@@ -70,22 +64,13 @@ export async function getVouchStatus(vouchId: string): Promise<any> {
   });
 }
 
-/**
- * List all vouches for a wallet
- * 
- * # TODO
- * - Complete implementation
- */
-export async function listVouches(walletAddress: string): Promise<any> {
-  return apiRequest(`/vouches`, {
+export async function listVouches(walletAddress: string): Promise<ListVouchesResponse> {
+  return apiRequest<ListVouchesResponse>("/vouches", {
     method: "POST",
     body: JSON.stringify({ wallet_address: walletAddress }),
   });
 }
 
-/**
- * Health check endpoint
- */
 export async function checkBackendHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`);
