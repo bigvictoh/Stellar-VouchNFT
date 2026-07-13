@@ -1,195 +1,188 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, log, symbol_short, Env, Symbol, Vec};
-
-/// TODO: Implement proper NFT metadata storage structure
-/// This should include fields like:
-/// - owner: Address
-/// - skill_category: String
-/// - issuer: Address
-/// - issue_date: u64
-/// - metadata_uri: String
+use soroban_sdk::{contract, contractimpl, log, symbol_short, Address, Env, Map, String, Vec};
 
 #[contract]
 pub struct SoulboundVouchNFT;
 
 #[contractimpl]
 impl SoulboundVouchNFT {
-    /// Initialize the contract with an admin address
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `admin` - The administrator address that can issue vouches
-    /// 
-    /// # TODO
-    /// - Store admin in contract data
-    /// - Initialize any required state variables
-    pub fn init(env: Env, admin: soroban_sdk::Address) {
-        log!(
-            &env,
-            "VouchNFT: Initialized contract with admin: {}",
-            admin
-        );
-        // TODO: Implement contract initialization
-        // env.storage().persistent().set(&symbol_short!("admin"), &admin);
+    pub fn init(env: Env, admin: Address) {
+        let storage = env.storage().persistent();
+        storage.set(&symbol_short!("admin"), &admin);
+        storage.set(&symbol_short!("counter"), &0u32);
+        storage.set(&symbol_short!("owners"), &Map::<u32, Address>::new(&env));
+        storage.set(&symbol_short!("skills"), &Map::<u32, String>::new(&env));
+        storage.set(&symbol_short!("metadata"), &Map::<u32, String>::new(&env));
+        storage.set(&symbol_short!("owner_vouches"), &Map::<Address, Vec<u32>>::new(&env));
+
+        log!(&env, "VouchNFT: Initialized contract with admin: {}", admin);
     }
 
-    /// Mint a new Soulbound NFT (Vouch)
-    /// 
-    /// This function creates a new non-transferable NFT vouching for a user's skill.
-    /// The NFT is bound to a specific address and cannot be transferred.
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `to` - The address receiving the vouch (NFT owner)
-    /// * `skill` - The skill being vouched for (e.g., "Rust Programming", "DevOps")
-    /// * `metadata_uri` - URI pointing to detailed metadata (IPFS, HTTP, etc.)
-    /// 
-    /// # Returns
-    /// * `u32` - The ID of the newly minted NFT
-    /// 
-    /// # TODO
-    /// - Verify caller is authorized to mint (check admin/issuer)
-    /// - Store NFT metadata in contract state
-    /// - Track NFT ownership in a map
-    /// - Emit an event for NFT minting
-    /// - Implement duplicate prevention (one vouch per skill per issuer)
     pub fn mint_vouch(
         env: Env,
-        to: soroban_sdk::Address,
-        skill: soroban_sdk::String,
-        metadata_uri: soroban_sdk::String,
+        to: Address,
+        skill: String,
+        metadata_uri: String,
     ) -> u32 {
-        log!(
-            &env,
-            "VouchNFT: Minting vouch for {} in skill: {}",
-            to,
-            skill
-        );
+        let storage = env.storage().persistent();
+        let admin: Address = storage
+            .get(&symbol_short!("admin"))
+            .expect("contract must be initialized with admin");
 
-        // TODO: Validate inputs
-        // TODO: Increment NFT counter
-        // TODO: Store NFT metadata
+        let invoker = env.invoker();
+        if invoker != admin {
+            panic!("VouchNFT: caller is not authorized to mint vouches");
+        }
 
-        let nft_id = 1; // Placeholder
-        nft_id
+        if skill.len() == 0 {
+            panic!("VouchNFT: skill cannot be empty");
+        }
+
+        let mut counter: u32 = storage.get(&symbol_short!("counter")).unwrap_or(0);
+        counter = counter.saturating_add(1);
+        storage.set(&symbol_short!("counter"), &counter);
+
+        let mut owners: Map<u32, Address> = storage
+            .get(&symbol_short!("owners"))
+            .unwrap_or(Map::new(&env));
+        let mut skills: Map<u32, String> = storage
+            .get(&symbol_short!("skills"))
+            .unwrap_or(Map::new(&env));
+        let mut metadata: Map<u32, String> = storage
+            .get(&symbol_short!("metadata"))
+            .unwrap_or(Map::new(&env));
+        let mut owner_vouches: Map<Address, Vec<u32>> = storage
+            .get(&symbol_short!("owner_vouches"))
+            .unwrap_or(Map::new(&env));
+
+        owners.set(counter, to.clone());
+        skills.set(counter, skill.clone());
+        metadata.set(counter, metadata_uri.clone());
+
+        let mut owned_vouches = owner_vouches
+            .get(to.clone())
+            .unwrap_or_else(|| Vec::new(&env));
+        owned_vouches.push_back(counter);
+        owner_vouches.set(to.clone(), owned_vouches);
+
+        storage.set(&symbol_short!("owners"), &owners);
+        storage.set(&symbol_short!("skills"), &skills);
+        storage.set(&symbol_short!("metadata"), &metadata);
+        storage.set(&symbol_short!("owner_vouches"), &owner_vouches);
+
+        log!(&env, "VouchNFT: Minted vouch {} for {}", counter, to);
+        counter
     }
 
-    /// Query vouch details by NFT ID
-    /// 
-    /// Retrieves the metadata and details of a specific vouch NFT.
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `nft_id` - The ID of the NFT to query
-    /// 
-    /// # Returns
-    /// * `Vec<soroban_sdk::String>` - NFT metadata fields (owner, skill, issuer, etc.)
-    /// 
-    /// # TODO
-    /// - Return structured NFT data (consider using a struct)
-    /// - Handle case where NFT doesn't exist
-    pub fn get_vouch(env: Env, nft_id: u32) -> Vec<soroban_sdk::String> {
-        log!(&env, "VouchNFT: Querying vouch with ID: {}", nft_id);
+    pub fn get_vouch(env: Env, nft_id: u32) -> Vec<String> {
+        let storage = env.storage().persistent();
+        let owners: Map<u32, Address> = storage
+            .get(&symbol_short!("owners"))
+            .unwrap_or(Map::new(&env));
+        let skills: Map<u32, String> = storage
+            .get(&symbol_short!("skills"))
+            .unwrap_or(Map::new(&env));
+        let metadata: Map<u32, String> = storage
+            .get(&symbol_short!("metadata"))
+            .unwrap_or(Map::new(&env));
 
-        // TODO: Retrieve and return NFT metadata
-        let result: Vec<soroban_sdk::String> = Vec::new(&env);
+        let owner = owners
+            .get(nft_id)
+            .expect("vouch not found for provided id");
+        let skill = skills
+            .get(nft_id)
+            .expect("skill not found for provided vouch id");
+        let metadata_uri = metadata
+            .get(nft_id)
+            .expect("metadata not found for provided vouch id");
+
+        let mut result = Vec::new(&env);
+        result.push_back(owner.to_string());
+        result.push_back(skill);
+        result.push_back(metadata_uri);
         result
     }
 
-    /// Query all vouches for a specific address
-    /// 
-    /// Returns a list of all Soulbound NFTs owned by an address.
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `owner` - The address to query
-    /// 
-    /// # Returns
-    /// * `Vec<u32>` - List of NFT IDs owned by the address
-    /// 
-    /// # TODO
-    /// - Implement efficient indexing to find vouches by owner
-    pub fn get_vouches_for_owner(env: Env, owner: soroban_sdk::Address) -> Vec<u32> {
-        log!(&env, "VouchNFT: Querying vouches for owner: {}", owner);
+    pub fn get_vouches_for_owner(env: Env, owner: Address) -> Vec<u32> {
+        let storage = env.storage().persistent();
+        let owner_vouches: Map<Address, Vec<u32>> = storage
+            .get(&symbol_short!("owner_vouches"))
+            .unwrap_or(Map::new(&env));
 
-        // TODO: Query and return all NFTs owned by address
-        let result: Vec<u32> = Vec::new(&env);
-        result
+        owner_vouches.get(owner).unwrap_or_else(|| Vec::new(&env))
     }
 
-    /// DISABLED: Soulbound NFTs cannot be transferred
-    /// 
-    /// This function intentionally always fails to enforce the Soulbound property.
-    /// NFTs issued as professional vouches must remain permanently bound to the recipient.
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `nft_id` - The ID of the NFT (not used)
-    /// * `from` - The sender address (not used)
-    /// * `to` - The recipient address (not used)
-    /// 
-    /// # Panics
-    /// Always panics with "VouchNFT: Soulbound NFTs cannot be transferred"
     pub fn transfer(
         env: Env,
         _nft_id: u32,
-        _from: soroban_sdk::Address,
-        _to: soroban_sdk::Address,
+        _from: Address,
+        _to: Address,
     ) {
-        // Soulbound NFTs are permanently bound to their recipient
-        // Transfers are not allowed under any circumstances
         log!(&env, "VouchNFT: Transfer attempted but is disabled for Soulbound NFTs");
         panic!("VouchNFT: Soulbound NFTs cannot be transferred");
     }
 
-    /// Check if an NFT is Soulbound (always true for this contract)
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `nft_id` - The ID of the NFT
-    /// 
-    /// # Returns
-    /// * `bool` - Always returns true
-    pub fn is_soulbound(env: Env, nft_id: u32) -> bool {
-        log!(
-            &env,
-            "VouchNFT: Checking Soulbound status for NFT: {}",
-            nft_id
-        );
-        true // All NFTs in this contract are Soulbound
+    pub fn is_soulbound(_env: Env, _nft_id: u32) -> bool {
+        true
     }
 
-    /// Burn/revoke a vouch (admin only)
-    /// 
-    /// Allows the issuer or admin to revoke a vouch that was issued in error.
-    /// 
-    /// # Arguments
-    /// * `env` - The Soroban environment
-    /// * `nft_id` - The ID of the NFT to burn
-    /// 
-    /// # TODO
-    /// - Verify caller is authorized (admin or issuer)
-    /// - Remove NFT from storage
-    /// - Emit revocation event
     pub fn revoke_vouch(env: Env, nft_id: u32) {
-        log!(&env, "VouchNFT: Revoking vouch with ID: {}", nft_id);
+        let storage = env.storage().persistent();
+        let mut owners: Map<u32, Address> = storage
+            .get(&symbol_short!("owners"))
+            .unwrap_or(Map::new(&env));
+        let owner = owners
+            .get(nft_id)
+            .expect("vouch not found for provided id");
 
-        // TODO: Implement revocation logic
+        let mut owner_vouches: Map<Address, Vec<u32>> = storage
+            .get(&symbol_short!("owner_vouches"))
+            .unwrap_or(Map::new(&env));
+        let mut owned = owner_vouches
+            .get(owner.clone())
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let filtered = owned
+            .into_iter()
+            .filter(|id| *id != nft_id)
+            .collect::<Vec<u32>>();
+        owner_vouches.set(owner.clone(), filtered);
+
+        owners.remove(nft_id);
+        storage.set(&symbol_short!("owners"), &owners);
+        storage.set(&symbol_short!("owner_vouches"), &owner_vouches);
+
+        log!(&env, "VouchNFT: Revoked vouch id {}", nft_id);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as TestAddress;
+    use soroban_sdk::testutils::{Address as TestAddress, Ledger};
 
-    // TODO: Implement comprehensive test suite
-    // Test scenarios:
-    // - Successful minting of a vouch
-    // - Preventing transfers (verify panic)
-    // - Querying vouch data
-    // - Revoking vouches
-    // - Authorization checks
-    // - Edge cases (invalid inputs, duplicate vouches, etc.)
+    #[test]
+    fn test_init_and_mint_vouch() {
+        let env = Env::default();
+        env.ledger().set(Ledger {
+            scp_info: Default::default(),
+            timestamp: 0,
+            protocol_version: 1,
+            sequence_number: 1,
+            network_passphrase: "Test Network".into(),
+        });
+
+        let admin = TestAddress::random(&env);
+        SoulboundVouchNFTClient::new(&env, &env.current_contract()).init(&admin);
+
+        let owner = TestAddress::random(&env);
+        let skill = String::from_slice(&env, "Rust Programming");
+        let metadata_uri = String::from_slice(&env, "ipfs://example");
+
+        let vouch_id = SoulboundVouchNFTClient::new(&env, &env.current_contract())
+            .mint_vouch(&owner.clone().into(), &skill, &metadata_uri);
+
+        assert_eq!(vouch_id, 1);
+    }
 }
