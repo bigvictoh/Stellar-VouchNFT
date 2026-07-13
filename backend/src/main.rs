@@ -222,13 +222,21 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
 
-    // TODO: Implement backend tests
-    // Test scenarios:
-    // - Health check endpoint
-    // - Verify vouch request validation
-    // - GitHub identity verification
-    // - Smart contract integration
-    // - Error handling and edge cases
-    // - Rate limiting
+    #[tokio::test]
+    async fn health_check_returns_ok() {
+        let app_state = Arc::new(AppState {
+            vouches: Mutex::new(Vec::new()),
+            next_vouch_id: Mutex::new(1),
+        });
+        let app = app(app_state);
+        let response = app
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
