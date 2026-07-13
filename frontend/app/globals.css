@@ -1,14 +1,19 @@
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 html {
   scroll-behavior: smooth;
 }
 
 body {
-  @apply text-gray-900;
+  @apply min-h-screen bg-slate-50 text-slate-900 antialiased;
 }
 
-/* TODO: Add custom component styles */
-/* Button variants, animations, etc. */
+* {
+  box-sizing: border-box;
+}
+
+button {
+  @apply outline-none;
+}
