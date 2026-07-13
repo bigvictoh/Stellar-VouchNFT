@@ -6,86 +6,61 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
-/// Application state shared across routes
-/// 
-/// # TODO
-/// - Add Stellar client connection
-/// - Add database connection pool
-/// - Add smart contract client
-#[derive(Clone)]
 pub struct AppState {
-    // TODO: Add connection pools and clients here
-    // stellar_client: StellarClient,
-    // db: DatabaseConnection,
-    // contract_client: ContractClient,
+    vouches: Mutex<Vec<VouchRecord>>,
+    next_vouch_id: Mutex<u32>,
 }
 
-/// Request body for the verify vouches endpoint
+#[derive(Debug, Serialize, Clone)]
+pub struct VouchRecord {
+    pub vouch_id: String,
+    pub wallet_address: String,
+    pub skill: String,
+    pub issuer: String,
+    pub metadata_uri: String,
+    pub issue_date: String,
+    pub status: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct VerifyVouchRequest {
-    /// The wallet address requesting verification
     pub wallet_address: String,
-
-    /// GitHub username for identity verification
-    /// TODO: Support other identity providers (Twitter, LinkedIn, etc.)
     pub github_username: Option<String>,
-
-    /// The skill being vouched for
     pub skill: String,
-
-    /// Optional metadata URI (IPFS, HTTP, etc.)
     pub metadata_uri: Option<String>,
 }
 
-/// Response from the verify vouches endpoint
 #[derive(Debug, Serialize)]
 pub struct VerifyVouchResponse {
-    /// Transaction ID or vouch ID
     pub vouch_id: String,
-
-    /// Current verification status
     pub status: String,
-
-    /// Human-readable message
     pub message: String,
 }
 
-/// Health check endpoint
-/// 
-/// # TODO
-/// - Check database connection status
-/// - Check Stellar network connectivity
+#[derive(Debug, Serialize)]
+pub struct ListVouchesResponse {
+    pub vouches: Vec<VouchRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VouchStatusResponse {
+    pub vouch_id: String,
+    pub status: String,
+    pub message: String,
+}
+
 async fn health_check() -> impl IntoResponse {
     info!("Health check endpoint called");
     (StatusCode::OK, "VouchNFT Backend is running ✓")
 }
 
-/// Verify and mint a vouch NFT
-/// 
-/// This endpoint:
-/// 1. Verifies the user's identity (GitHub/other sources)
-/// 2. Checks if the issuer is authorized
-/// 3. Calls the smart contract to mint a Soulbound NFT
-/// 4. Returns the vouch ID to the frontend
-/// 
-/// # Arguments
-/// * `state` - Application state
-/// * `payload` - Verification request details
-/// 
-/// # TODO
-/// - Implement GitHub identity verification
-/// - Call smart contract mint function
-/// - Store verification records in database
-/// - Implement rate limiting
-/// - Add signature verification from wallet
-/// - Support multiple identity providers
-/// - Add error handling for smart contract failures
 async fn verify_vouch(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<VerifyVouchRequest>,
 ) -> Result<(StatusCode, Json<VerifyVouchResponse>), (StatusCode, String)> {
     info!(
