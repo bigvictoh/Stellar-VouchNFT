@@ -1,51 +1,21 @@
 /**
- * Backend API client utilities
- * 
- * # TODO
- * - Implement proper error handling
- * - Add request/response logging
- * - Add retry logic
- * - Implement rate limiting
+ * Backend API client utilities for VouchNFT.
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
-/**
- * Generic API request wrapper
- */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const url = new URL(endpoint, API_BASE_URL).toString();
-  
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`);
-    }
-
-    return (await response.json()) as T;
-  } catch (error) {
-    console.error(`API request to ${endpoint} failed:`, error);
-    throw error;
-  }
+export interface Vouch {
+  id: string;
+  skill: string;
+  issuer: string;
+  issueDate: string;
+  metadataUri: string;
 }
 
-/**
- * Verify and mint a vouch NFT
- * 
- * # TODO
- * - Add request validation
- * - Add timeout handling
- */
+interface ListVouchesResponse {
+  vouches: Vouch[];
+}
+
 export interface VerifyVouchRequest {
   wallet_address: string;
   github_username?: string;
@@ -57,6 +27,25 @@ export interface VerifyVouchResponse {
   vouch_id: string;
   status: string;
   message: string;
+}
+
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const url = new URL(endpoint, API_BASE_URL).toString();
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`API request failed: ${response.status} ${response.statusText} - ${body}`);
+  }
+
+  return (await response.json()) as T;
 }
 
 export async function verifyVouch(
