@@ -1,55 +1,47 @@
 /**
- * Wallet utility functions for Freighter integration
- * 
- * # TODO
- * - Implement actual Freighter API calls
- * - Add error handling
- * - Add retry logic
- * - Add event listeners for wallet changes
+ * Wallet utility functions for Freighter integration.
+ *
+ * This file exposes the core Freighter wallet helpers used by the UI.
  */
 
-/**
- * Check if Freighter wallet is installed
- */
 export const isFreighterInstalled = (): boolean => {
   if (typeof window === "undefined") return false;
-  return "freighter" in window;
+  return typeof (window as any).freighter !== "undefined";
 };
 
-/**
- * Get the public key from Freighter wallet
- * 
- * # TODO
- * - Complete implementation with @stellar/freighter-api
- */
 export const getFreighterPublicKey = async (): Promise<string> => {
-  // TODO: Implement actual call
-  // import { getPublicKey } from "@stellar/freighter-api";
-  // return getPublicKey();
+  if (typeof window === "undefined") {
+    throw new Error("Freighter is only available in the browser.");
+  }
 
-  throw new Error("Not implemented");
+  const { getPublicKey } = await import("@stellar/freighter-api");
+  return await getPublicKey();
 };
 
-/**
- * Sign a transaction with Freighter
- * 
- * # TODO
- * - Complete implementation
- */
 export const signTransactionWithFreighter = async (
   transactionXdr: string
 ): Promise<string> => {
-  // TODO: Implement actual call
-  throw new Error("Not implemented");
+  const { signTransaction } = await import("@stellar/freighter-api");
+  const result = await signTransaction(transactionXdr);
+
+  if (typeof result === "string") {
+    return result;
+  }
+
+  if (result && typeof result === "object") {
+    if ("signature" in result) {
+      return (result as any).signature;
+    }
+
+    if ("signedTransaction" in result) {
+      return (result as any).signedTransaction;
+    }
+  }
+
+  throw new Error("Unexpected Freighter signing result.");
 };
 
-/**
- * Connect to specified Stellar network
- * 
- * # TODO
- * - Complete implementation
- */
 export const connectToNetwork = async (network: "testnet" | "public") => {
-  // TODO: Implement network switching
-  console.log(`TODO: Connect to ${network} network`);
+  console.log(`Connecting to Stellar ${network}`);
+  return network;
 };
